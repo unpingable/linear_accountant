@@ -1,0 +1,15 @@
+[package]
+name = "linear-accountant"
+version = "0.0.0"
+edition = "2021"
+description = "Linear Accountant v0 — reference boundary for the Spendability Authority role. In-memory, non-production. Eligibility is contractible; capacity is linear."
+authors = ["James Beck"]
+license = "Apache-2.0"
+repository = "https://github.com/unpingable/linearaccountant"
+readme = "README.md"
+keywords = ["governance", "capability", "spendability", "agent", "authorization"]
+publish = false
+
+[lib]
+name = "linear_accountant"
+path = "src/lib.rs"

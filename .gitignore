@@ -1,0 +1,15 @@
+# Rust
+/target
+
+# Claude Code local settings
+.claude/
+
+# Continuity (local MCP config)
+.mcp.json
+
+# Logs / scratch
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
