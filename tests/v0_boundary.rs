@@ -138,6 +138,29 @@ fn same_idempotency_key_does_not_mint_duplicate_capacity() {
     assert_eq!(acc.available(&deploy()), 3, "stock must not be drawn twice");
 }
 
+// Refactor-guard, not an exposure fix. With no idempotency_key, request_id IS the
+// fallback dedupe key (lib.rs: `idempotency_key.unwrap_or_else(|| request_id)`).
+// Every keyless caller relies on this branch, but the suite only exercises it
+// incidentally (the `request()` helper always passes `idempotency_key: None`, yet
+// no other test replays the *same* request_id). This pins that fallback as
+// intentional: a future cleanup that drops the `unwrap_or_else` would silently turn
+// every keyless caller into a duplicate-minter, and this test would catch it.
+#[test]
+fn keyless_replay_of_same_request_id_does_not_mint_duplicate_capacity() {
+    let mut acc = InMemoryAccountant::new();
+    acc.deposit(&deploy(), 5);
+
+    let r = request("r1", 2, "elig-1"); // idempotency_key: None
+    let first = token_of(acc.request_capacity(r.clone(), 0));
+    assert_eq!(acc.available(&deploy()), 3); // 5 - 2
+
+    // Same request_id, still no key: the second call must replay the original grant.
+    let second = token_of(acc.request_capacity(r, 0));
+
+    assert_eq!(first, second, "same request_id must return the same token");
+    assert_eq!(acc.available(&deploy()), 3, "stock must not be drawn twice");
+}
+
 // --- Headline invariant: contractible eligibility, linear capacity --------
 #[test]
 fn eligibility_is_contractible_but_capacity_is_linear() {
