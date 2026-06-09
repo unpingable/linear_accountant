@@ -105,6 +105,11 @@ work, and the conjecture is not smuggled in. The standing obligation: **keep the
 descriptor typed.** The day a free-text field starts influencing a decision, Pillar 2
 dependence is back. That is the joint to watch on every future widening.
 
+But typed is not the same as checkable. The seam blocks prose; it does not block a
+*typed* field that lies — a `Tick` or a `request_id` is a caller-supplied claim the
+accountant cannot verify. So narrowness has two axes, not one: prose width *and*
+claim-checkability. The full obligation on every widening is in §2b vigilance point 3.
+
 ## 2. The inviolable rule
 
 > No minting by the persuadable.
@@ -144,6 +149,21 @@ presence (`eligibility_reference` non-empty). The seven-variant refusal enum is 
    match `action` on consume. Whether the unit should be per-action or per-scope is
    deployment hard-part #1 ([deployment-shape](../working/decisions/deployment-shape.md)), decided per domain — a deliberate v0
    simplification, not a bug.
+3. **The seam is narrow against prose, not against typed claims.** The descriptor
+   carries no free text, and §"the joint" rightly guards that boundary. But two typed
+   fields already influence decisions as caller-supplied ground truth the accountant
+   cannot verify: `Tick` (is it still *now*?) and `request_id` (is this the *same*
+   operation?). Neither is a free-text plea, so neither trips the narrow-seam guard —
+   yet each carries a claim whose truth lives entirely in the caller. A falsifiable
+   timestamp is a plea in numeric clothing; a fresh `request_id` asserting "new
+   operation" is a plea in identifier clothing. So the precise property is **narrow
+   against pleas-as-prose, not narrow against pleas.** Where the trust actually sits:
+   `Tick` is Nightshift's to own (freshness breaker); `request_id`-as-operation-identity
+   is caller discipline, pinned as the fallback dedupe key (`unwrap_or_else`,
+   regression-guarded at `v0_boundary.rs`). The obligation on every future widening is
+   therefore not only "is this field free text?" but **"does this typed field carry a
+   claim the accountant can't check?"** If yes, it needs a named owner outside the
+   accountant — it must not be treated as self-certifying because it happens to be typed.
 
 > The danger is making it smart. The win is keeping it stupid enough that nobody can
 > plead with it.
@@ -291,6 +311,7 @@ To each constellation repo (one repo only, against this boundary):
 > The sovereign cannot be semantic.
 > The semantic layer advises; the accountant conserves; the scheduler expires; the witness testifies; execution consumes.
 > A dumb breaker on a narrow seam beats a smart breaker on a fat one.
+> Typed is not the same as checkable. The seam blocks prose; it does not block a timestamp that lies.
 > No minting by the persuadable.
 > Conservation is the proof; eligibility separation is the posture — and the asymmetry is the point.
 > Eligibility is a request. It is not payment.
