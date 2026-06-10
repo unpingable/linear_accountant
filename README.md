@@ -95,6 +95,12 @@ surfaces (deployment shim, external custody anchor, request-keyed testimony) are
 under [`docs/working/`](docs/working/) but not built. See
 [`docs/working/specimens/workload-specimens.md`](docs/working/specimens/workload-specimens.md).
 
+The freeze has one carve-out — a **refusal-only preflight door** (`preflight::preflight_consume`):
+a consumer may knock and receive a structured *not thawed* refusal; it mutates nothing.
+*Doors are allowed; hidden rooms are not* (boundary doc §2d). The arithmetic core is also
+machine-checked: a Lean model + Rust differential test (`verification/`) prove and
+cross-check the conservation identity and replay-refusal — hardening, not thawing.
+
 ## License
 
 Licensed under [Apache-2.0](LICENSE).

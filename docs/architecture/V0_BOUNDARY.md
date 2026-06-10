@@ -206,6 +206,40 @@ witness gap** — a quiet custody act in [custody-legibility](../working/decisio
 deployment hard-parts #1 (effect taxonomy) and #4 (ownership). Candidate, **not built**;
 opens when a real budget-admission consumer needs the witness fields.
 
+## 2d. The preflight door (refusal exposed, machinery withheld)
+
+> **Doors are allowed. Hidden rooms are not.**
+> **A frozen boundary may expose refusal preflight; it must not mutate state until the
+> named consumer trigger fires.**
+
+A frozen permit office still needs a door to knock on. If the only answer to "may I
+`consume()`?" is silence, the freeze isn't principled restraint — it's the permit office
+behind an unmarked wall, and no consumer can ever *become* the trigger that thaws it.
+
+So v0 exposes exactly one refusal-only surface: [`preflight::preflight_consume`]. A
+consumer (Maude at a write-tool dispatcher, say) presents a `PreflightInquiry` — opaque
+mechanical fields, no free-text plea — and gets back a structured `not thawed`:
+
+```
+refusal:                   ConsumePathNotThawed   (typed, not prose)
+consumer_trigger_required: true
+expected_trigger:          "real agent stack requesting consume() at its dispatcher"
+observed_boundary:         "maude.write_tool_approval"   (echoed back)
+mutation_performed:        false                  (the type's standing promise)
+```
+
+This is the **non-stupid middle path**: enough interface for a consumer to knock, not
+enough machinery for the accountant to self-thaw. The function takes no accountant and no
+`&mut` — it *structurally cannot* touch stock, tokens, or the ledger. What stays withheld
+behind the freeze is unchanged: durable ledger, deposits, refunds, conservation-witness
+extension, expiry lifecycle, and any actual capacity mutation.
+
+The point is the forcing case: once a real consumer *integrates* this check, the trigger
+is no longer hypothetical — you have an observed consumer boundary with a denied consume
+attempt on record. That denial is the evidence that thaw is now justified ([authority and
+self-thaw discipline]: a future trigger is not a fired trigger; a *door* is how a future
+trigger becomes a fired one).
+
 ## 3. Object vocabulary
 
 - **Eligibility** — non-spendable admissibility statement. A *reference* + a

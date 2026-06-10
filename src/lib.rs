@@ -7,6 +7,11 @@
 //! No further crate changes without a *consumer trigger*: a real agent stack wanting
 //! `consume()` at its tool-call dispatcher. See `docs/working/specimens/workload-specimens.md`.
 //!
+//! **Carve-out (the door).** A frozen boundary may expose a *refusal-only* preflight so a
+//! prospective consumer can discover the request shape and receive a structured "not yet"
+//! ([`preflight`]). It must not mutate state. *Doors are allowed; hidden rooms are not.*
+//! The first real use of that door is the visible consumer boundary that fires the thaw.
+//!
 //! **Non-production.** In-memory, single-writer, no persistence, no distribution.
 //! Executable form of `docs/architecture/V0_BOUNDARY.md`. Other constellation
 //! tools conform to this contract; they do not co-design it.
@@ -649,6 +654,72 @@ pub mod witness {
             consumption_events: events,
             total_consumed: total,
             replays_refused: replays,
+        }
+    }
+}
+
+/// The preflight door (refusal-only). A frozen boundary may expose a *refusal* preflight
+/// so a prospective consumer can discover the request shape and receive a structured
+/// "not yet" — it must NOT mutate state until the named consumer trigger fires. This is
+/// the knock-surface whose first real use *is* the forcing case for thaw.
+///
+/// > Doors are allowed. Hidden rooms are not.
+///
+/// Nothing here touches stock, tokens, or the ledger: [`preflight_consume`] is a pure
+/// function taking no accountant. No deposits, no spend, no persistence, no mutation —
+/// the type signature is the promise.
+pub mod preflight {
+    /// What a consumer presents at a write-tool dispatcher to ask whether a spend *could*
+    /// be authorized. Opaque, mechanical fields only — no free-text justification, so the
+    /// seam stays exactly as narrow as the real consume path.
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub struct PreflightInquiry {
+        pub consumer: String,      // e.g. "maude"
+        pub boundary: String,      // e.g. "write_tool_approval"
+        pub principal: String,     // workload / bot identity
+        pub action_class: String,  // e.g. "write_tool"
+        pub repo: String,
+        pub estimated_units: u64,
+        pub basis_receipt: String, // sealed pointer to a standing/watchbill/wicket receipt
+    }
+
+    /// Typed refusal identity — never free text. Composes with the typed-refusal
+    /// calibration in `WITNESS_CLAIM_SCOPE_GAP`: a refusal's durable identity is a field,
+    /// not a prose string a consumer must parse.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub enum PreflightRefusal {
+        /// The consume path is frozen; no spend machinery exists to authorize against.
+        ConsumePathNotThawed,
+    }
+
+    /// The door's answer. v0 has exactly one outcome: a structured "not thawed" refusal
+    /// that names the trigger which would change it. `mutation_performed` is always
+    /// `false` — the field exists to make that promise legible to a caller.
+    #[derive(Clone, Debug, PartialEq, Eq)]
+    pub struct PreflightDecision {
+        pub refusal: PreflightRefusal,
+        pub consumer_trigger_required: bool,
+        pub expected_trigger: String,
+        pub observed_boundary: String,
+        pub mutation_performed: bool,
+        pub freeze_basis: String,
+        pub allowed_next_step: String,
+    }
+
+    /// Knock on the door. Returns the structured "not thawed" refusal, echoing the
+    /// observed boundary so that a real integration becomes a *visible* consumer boundary
+    /// — the forcing case for thaw. Performs no mutation of any kind.
+    pub fn preflight_consume(inquiry: &PreflightInquiry) -> PreflightDecision {
+        PreflightDecision {
+            refusal: PreflightRefusal::ConsumePathNotThawed,
+            consumer_trigger_required: true,
+            expected_trigger: "real agent stack requesting consume() at its tool-call dispatcher"
+                .into(),
+            observed_boundary: format!("{}.{}", inquiry.consumer, inquiry.boundary),
+            mutation_performed: false,
+            freeze_basis: "README/CLAUDE.md freeze (v0 reference boundary)".into(),
+            allowed_next_step: "operator may thaw when dispatcher integration is visible, or by fiat"
+                .into(),
         }
     }
 }
