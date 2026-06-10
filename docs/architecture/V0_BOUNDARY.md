@@ -255,7 +255,7 @@ treated as money` · **`free text in the seam influences a mint/consume decision
 
 ## 6. Deliberately absent in v0 (where demons live)
 
-- **No refunds.** Consumption is terminal; a failed execution does not return capacity. Refund rules are where double-spend creeps back. Any refund must later be an explicit, audited accountant rule.
+- **No refunds.** Consumption is terminal; a failed execution does not return capacity. Refund rules are where double-spend creeps back. Any refund must later be an explicit, audited accountant rule — and the *shape* of that rule is already determined: **a refund is a new custodial `deposit`, explicit, receipted, and gated by standing — never an automatic reversal of `consume`.** An auto-refund on failed effect is a retry storm re-entering through the accounting department: free retries with extra steps. Restocking capacity is minting, so it lives where all minting lives (§2c, budget-setting under custody), not on the spend path. The demo beat — *the confabulated citation consumed real budget and bought a refusal* — depends on this paragraph holding.
 - **No distribution.** Single in-memory writer. A real multi-writer accountant needs single writer / CAS / fencing tokens / monotonic sequence / durable log / idempotency — named here as known prior-art, not built.
 - **No semantic policy engine.** If the accountant gets clever, it fails back into laundering with a nicer hat.
 
@@ -285,11 +285,44 @@ Not one brain. Five suspicious offices. Ugly, but not fantasy architecture.
 3. consumed token cannot be consumed again
 4. receipt cannot be used as token
 5. repeated request with same idempotency key does not mint duplicate capacity
+6. keyless replay of the same `request_id` does not mint duplicate capacity
+   (refactor-guard: pins `request_id` as the fallback dedupe key when no
+   `idempotency_key` is supplied — see `unwrap_or_else` in `request_capacity`)
 
 Plus: contractible-eligibility-vs-linear-capacity, **stale-eligibility-is-a-distinct-breach**,
 idempotent event replay, token expiry, scope mismatch, revoke finality,
 **custodial-deposit-is-recorded** (invariant 2, in-process), **witness-can-testify-no-double-spend**,
 and the `restart_service` toy-consumer scenario closing the full contact loop through the witness.
+
+A separate **differential oracle** (`tests/differential_oracle.rs` against a Lean
+model in `verification/`) checks the conservation identity and replay-refusal over
+randomized event sequences — see §9b.
+
+## 9b. The differential oracle (hardening, not thawing)
+
+This is the one component where machine-checked proof earns its keep instead of
+cosplaying rigor: a tiny state machine, affine/multiset semantics, a core claim that is
+a linear-logic fragment, and the highest blast radius if wrong — it is the thing that
+makes failure *finite*, so a bug here unmakes finiteness everywhere.
+
+So the ledger is modelled in Lean (`verification/Ledger.lean`) as a fold over an event
+list, with two machine-checked theorems (zero `sorry`, mathlib-free):
+
+- **`conservation`** — `minted = available + Σ original`, for every event sequence. The
+  books always balance. (Conservation is stated over `original`, which neither consume
+  nor expiry mutates — which is *why* it holds without a restock rule.)
+- **`replay_is_noop`** — consuming an already-seen event id changes nothing:
+  replay-refusal and no-double-consume are one theorem.
+
+The Rust implementation is then **differential-tested** against a faithful reference
+model of that same fold (`tests/differential_oracle.rs`): randomized event sequences run
+against both, asserting decision-category agreement plus the proven invariants after
+every operation.
+
+This **adds no surface and opens no spend path** — it hardens the frozen boundary rather
+than thawing it (per "doors are allowed; hidden rooms are not"). It also gives the Lean
+repo its first real consumer, which is the only thing the promotion discipline has ever
+let matter. See `verification/README.md`.
 
 ## 10. Repo-Claude handoff prompt
 
