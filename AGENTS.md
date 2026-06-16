@@ -16,7 +16,13 @@ cargo clippy --all-targets -- -D warnings
 cargo fmt --check
 ```
 
-There is no binary. This is a library crate others call.
+Primarily a library crate others call. One thin transport binary exists,
+`la_cli` (added 2026-06-16 on the first consumer trigger — the Agent Governor
+bootstrap-lab effect gate). It is a stdin/stdout line protocol over the existing
+`request_capacity`/`consume`/`deposit` decisions and adds **no policy** (each
+command maps 1:1 to an accountant method; the seam stays narrow). See
+[`docs/LA_CLI_PROTOCOL.md`](docs/LA_CLI_PROTOCOL.md). The library is still the
+boundary; the binary only carries decisions to an out-of-process consumer.
 
 ## What this is
 

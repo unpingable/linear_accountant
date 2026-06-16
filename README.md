@@ -59,7 +59,12 @@ cargo test        # 17 tests: v0 boundary, file-write workload, contention workl
 cargo clippy --all-targets -- -D warnings
 ```
 
-There is no binary. The crate is a library others call.
+The crate is primarily a library others call. As of the first consumer trigger
+(Agent Governor bootstrap-lab effect gate, 2026-06-16) there is also one thin
+transport binary, `la_cli` — a stdin/stdout line protocol over the existing
+decisions, adding **no policy** (see [`docs/LA_CLI_PROTOCOL.md`](docs/LA_CLI_PROTOCOL.md)).
+The library remains the boundary; the binary only lets an out-of-process consumer
+reach it.
 
 ## Architecture
 
