@@ -172,6 +172,33 @@ pub enum RevocationDecision {
     },
 }
 
+/// A single-use, scoped, target/effect-class-bound, expiring **bounded execution capability** — the
+/// "key" the receiver gate validates and burns. Minted by LA against a granted token; it binds the
+/// token's opaque `eligibility_reference` verbatim. This is the artifact WLP spec'd by omission; it
+/// lives here (the minting authority), never in the consumer.
+#[derive(Clone, Debug, PartialEq)]
+pub struct SpendCapability {
+    pub capability_id: String,
+    pub token_id: TokenId,
+    pub scope: Scope,
+    pub target: String,
+    pub effect_class: String,
+    pub eligibility_reference: String,
+    pub issued_at: Tick,
+    pub expires_at: Tick,
+    pub single_use: bool,
+}
+
+/// Why a capability could not be minted. Fail-closed: a capability is never issued against a token that
+/// cannot back it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum CapabilityError {
+    UnknownToken,
+    TokenExpired,
+    TokenRevoked,
+    Exhausted,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TokenStatus {
     Active,
@@ -237,6 +264,14 @@ pub enum Event {
     RevokeRefused {
         token_id: TokenId,
     },
+    /// A single-use spend capability was minted against a granted token (the bounded execution key).
+    /// Minting does not consume capacity; the burn happens at consume (the real effect path).
+    CapabilityIssued {
+        token_id: TokenId,
+        capability_id: String,
+        target: String,
+        effect_class: String,
+    },
 }
 
 struct TokenState {
@@ -248,6 +283,9 @@ struct TokenState {
     expires_at: Tick,
     revoked_at: Option<Tick>,
     consumed_events: HashSet<String>,
+    /// The opaque eligibility reference this grant was issued against. A spend capability binds this
+    /// verbatim — nobody recomputes the upstream Standing digest.
+    eligibility_reference: String,
 }
 
 impl TokenState {
@@ -421,6 +459,7 @@ impl InMemoryAccountant {
                 expires_at,
                 revoked_at: None,
                 consumed_events: HashSet::new(),
+                eligibility_reference,
             },
         );
         self.granted_requests.insert(dedupe_key, tid);
@@ -437,6 +476,53 @@ impl InMemoryAccountant {
             expires_at,
             receipt,
         }
+    }
+
+    /// Mint a single-use spend capability against a granted token. Additive: minting does NOT decrement
+    /// stock or consume — the burn happens at `consume` (the real effect path, thawed separately). The
+    /// capability binds the token's stored opaque `eligibility_reference` verbatim.
+    pub fn issue_capability(
+        &mut self,
+        token_id: TokenId,
+        target: &str,
+        effect_class: &str,
+        capability_id: &str,
+        now: Tick,
+    ) -> Result<SpendCapability, CapabilityError> {
+        let (scope, eligibility_reference, expires_at) = {
+            let s = self
+                .tokens
+                .get(&token_id.0)
+                .ok_or(CapabilityError::UnknownToken)?;
+            if s.revoked_at.is_some() {
+                return Err(CapabilityError::TokenRevoked);
+            }
+            if now >= s.expires_at {
+                return Err(CapabilityError::TokenExpired);
+            }
+            if s.remaining_capacity == 0 {
+                return Err(CapabilityError::Exhausted);
+            }
+            (s.scope.clone(), s.eligibility_reference.clone(), s.expires_at)
+        };
+        let cap = SpendCapability {
+            capability_id: capability_id.to_string(),
+            token_id,
+            scope,
+            target: target.to_string(),
+            effect_class: effect_class.to_string(),
+            eligibility_reference,
+            issued_at: now,
+            expires_at,
+            single_use: true,
+        };
+        self.record(Event::CapabilityIssued {
+            token_id,
+            capability_id: capability_id.to_string(),
+            target: target.to_string(),
+            effect_class: effect_class.to_string(),
+        });
+        Ok(cap)
     }
 
     pub fn consume(&mut self, req: ConsumeRequest, now: Tick) -> ConsumptionDecision {

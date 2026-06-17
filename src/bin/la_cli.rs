@@ -105,6 +105,7 @@ fn handle_line(line: &str, acct: &mut InMemoryAccountant, handles: &mut Vec<Toke
     match cmd {
         "deposit" => cmd_deposit(&fields, acct),
         "request_capacity" => cmd_request(&fields, acct, handles),
+        "issue_capability" => cmd_issue_capability(&fields, acct, handles),
         "consume" => cmd_consume(&fields, acct, handles),
         other => err(&format!("unknown cmd: {other}")),
     }
@@ -335,6 +336,52 @@ fn cmd_consume(
             esc(&requested_scope.0),
             esc(&format!("{receipt:?}"))
         ),
+    }
+}
+
+fn cmd_issue_capability(
+    f: &HashMap<&str, &str>,
+    acct: &mut InMemoryAccountant,
+    handles: &mut [TokenId],
+) -> String {
+    let handle = match req_str(f, "token_id") {
+        Ok(s) => s,
+        Err(e) => return e,
+    };
+    let target = match req_str(f, "target") {
+        Ok(s) => s,
+        Err(e) => return e,
+    };
+    let effect_class = match req_str(f, "effect_class") {
+        Ok(s) => s,
+        Err(e) => return e,
+    };
+    let capability_id = match req_str(f, "capability_id") {
+        Ok(s) => s,
+        Err(e) => return e,
+    };
+    let tick = match req_u64(f, "tick") {
+        Ok(n) => n,
+        Err(e) => return e,
+    };
+    let token_id = match parse_handle(handle, handles) {
+        Some(t) => t,
+        None => return err(&format!("unknown token handle: {handle}")),
+    };
+    match acct.issue_capability(token_id, target, effect_class, capability_id, tick as Tick) {
+        Ok(cap) => format!(
+            "{{\"capability_id\":\"{}\",\"token_id\":\"{}\",\"scope\":\"{}\",\"target\":\"{}\",\"effect_class\":\"{}\",\"eligibility_reference\":\"{}\",\"issued_at\":{},\"expires_at\":{},\"single_use\":{}}}",
+            esc(&cap.capability_id),
+            esc(handle),
+            esc(&cap.scope.0),
+            esc(&cap.target),
+            esc(&cap.effect_class),
+            esc(&cap.eligibility_reference),
+            cap.issued_at,
+            cap.expires_at,
+            cap.single_use,
+        ),
+        Err(e) => err(&format!("capability refused: {e:?}")),
     }
 }
 
