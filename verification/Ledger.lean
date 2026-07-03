@@ -18,9 +18,12 @@
       omission is sound: expiry cannot break the identity the way a restock could.
 
   Proven below (zero `sorry`):
-    1. `conservation`   — minted = available + Σ original, for every event sequence.
-    2. `replay_is_noop` — consuming an already-seen event id changes nothing
-                          (replay-refusal == no-double-consume).
+    1. `conservation`            — minted = available + Σ original, for every sequence
+                                   (the aggregate identity).
+    2. `token_balance_preserved` — original = remaining + consumed, per live token, for
+                                   every sequence (the local drawdown identity).
+    3. `replay_is_noop`          — consuming an already-seen event id changes nothing
+                                   (replay-refusal == no-double-consume).
 -/
 
 namespace LinearAccountant
@@ -163,6 +166,132 @@ theorem run_conserves (es : List Event) (s : State) (h : Conserved s) :
     minted = available + Σ original. The books always balance. -/
 theorem conservation (es : List Event) : Conserved (run State.init es) :=
   run_conserves es State.init rfl
+
+/-! ### Per-token drawdown
+
+Conservation (`minted = available + Σ original`) is the *aggregate* identity: it holds
+even if a single token's own bookkeeping were wrong, as long as `original` stayed put.
+This section proves the missing *local* identity — for every live token,
+`original = remaining + consumed`. It is the single-scope, ℕ instance of the general
+"consuming one token costs exactly its measure" law (`MeasureAccounting.consumes_wsum` in
+the sibling `~/git/lean` corpus); we re-derive it here by list induction rather than via
+that occurrence-linear substrate, so this file stays Mathlib-free and self-contained.
+The Rust differential test already asserts this invariant after every operation
+(`tests/differential_oracle.rs`); this makes the proven-model side symmetric with it. -/
+
+/-- Per-token balance: `original` splits into what is left and what is gone. -/
+def TokBalanced (t : Tok) : Prop := t.original = t.remaining + t.consumed
+
+/-- Every token in the ledger is individually balanced. -/
+def AllBalanced (s : State) : Prop := ∀ t ∈ s.tokens, TokBalanced t
+
+/-- A successful consume preserves balance: it moves `amount` from `remaining` to
+    `consumed`, and the `amount ≤ remaining` guard means the ℕ subtraction is exact. -/
+theorem tokBalanced_consumeTok (evId amount : Nat) (t : Tok)
+    (hcap : amount ≤ t.remaining) (hb : TokBalanced t) :
+    TokBalanced (consumeTok evId amount t) := by
+  simp only [TokBalanced, consumeTok] at *
+  omega
+
+/-- `updTok` preserves balance when `f` preserves it for *every* token. Used for
+    `revoke`, whose `revokeTok` never touches the balance fields. -/
+theorem allBalanced_updTok (tokId : Nat) (f : Tok → Tok)
+    (hf : ∀ t, TokBalanced t → TokBalanced (f t)) :
+    ∀ ts, (∀ t ∈ ts, TokBalanced t) → ∀ t ∈ updTok tokId f ts, TokBalanced t := by
+  intro ts
+  induction ts with
+  | nil => intro _ t ht; simp [updTok] at ht
+  | cons x xs ih =>
+      intro hbal t ht
+      simp only [updTok] at ht
+      by_cases h : x.id = tokId
+      · rw [if_pos h] at ht
+        rcases List.mem_cons.mp ht with heq | hmem
+        · subst heq; exact hf x (hbal x (List.mem_cons.mpr (Or.inl rfl)))
+        · exact hbal t (List.mem_cons.mpr (Or.inr hmem))
+      · rw [if_neg h] at ht
+        rcases List.mem_cons.mp ht with heq | hmem
+        · subst heq; exact hbal t (List.mem_cons.mpr (Or.inl rfl))
+        · exact ih (fun u hu => hbal u (List.mem_cons.mpr (Or.inr hu))) t hmem
+
+/-- `updTok` preserves balance when `f` preserves it for the *specific* token that
+    `findTok` locates. `findTok` and `updTok` both walk left-to-right and act on the
+    first matching id, so they agree on which token is touched — this proof only ever
+    case-splits on `x.id = tokId`; it never assumes ids are unique. -/
+theorem allBalanced_updTok_at (tokId : Nat) (f : Tok → Tok) (t₀ : Tok) :
+    ∀ ts, findTok tokId ts = some t₀ →
+      (TokBalanced t₀ → TokBalanced (f t₀)) →
+      (∀ t ∈ ts, TokBalanced t) →
+      ∀ t ∈ updTok tokId f ts, TokBalanced t := by
+  intro ts
+  induction ts with
+  | nil => intro hfind _ _ t ht; simp [updTok] at ht
+  | cons x xs ih =>
+      intro hfind hf hbal t ht
+      simp only [findTok] at hfind
+      simp only [updTok] at ht
+      by_cases h : x.id = tokId
+      · rw [if_pos h] at hfind ht
+        have hx : x = t₀ := Option.some.inj hfind
+        rcases List.mem_cons.mp ht with heq | hmem
+        · subst heq; subst hx; exact hf (hbal x (List.mem_cons.mpr (Or.inl rfl)))
+        · exact hbal t (List.mem_cons.mpr (Or.inr hmem))
+      · rw [if_neg h] at hfind ht
+        rcases List.mem_cons.mp ht with heq | hmem
+        · subst heq; exact hbal t (List.mem_cons.mpr (Or.inl rfl))
+        · exact ih hfind hf (fun u hu => hbal u (List.mem_cons.mpr (Or.inr hu))) t hmem
+
+/-- Every transition preserves per-token balance. -/
+theorem step_preserves_balance (s : State) (e : Event) (h : AllBalanced s) :
+    AllBalanced (step s e) := by
+  unfold AllBalanced at *
+  cases e with
+  | deposit a => simpa only [step] using h
+  | request a =>
+      simp only [step]
+      split
+      · exact h
+      · split
+        · intro t ht
+          rcases List.mem_cons.mp ht with heq | hmem
+          · subst heq; simp [TokBalanced]
+          · exact h t hmem
+        · exact h
+  | consume tokId evId amount =>
+      simp only [step]
+      cases hfind : findTok tokId s.tokens with
+      | none => exact h
+      | some tok =>
+          by_cases hseen : tok.events.contains evId
+          · simp only [hseen, if_true]; exact h
+          · by_cases hrev : tok.revoked
+            · simp only [hseen, hrev, if_true]; exact h
+            · by_cases hcap : amount > tok.remaining
+              · simp only [hseen, hrev, hcap, if_true]; exact h
+              · simp only [hseen, hrev, hcap, if_false]
+                intro t ht
+                exact allBalanced_updTok_at tokId (consumeTok evId amount) tok s.tokens
+                  hfind
+                  (fun hb => tokBalanced_consumeTok evId amount tok (Nat.le_of_not_lt hcap) hb)
+                  h t ht
+  | revoke tokId =>
+      simp only [step]
+      exact allBalanced_updTok tokId revokeTok
+        (fun u hu => by simp only [TokBalanced, revokeTok] at *; exact hu) s.tokens h
+
+/-- Per-token balance holds after any event sequence from any balanced start. -/
+theorem run_balanced (es : List Event) (s : State) (h : AllBalanced s) :
+    AllBalanced (run s es) := by
+  induction es generalizing s with
+  | nil => exact h
+  | cons e es ih => exact ih (step s e) (step_preserves_balance s e h)
+
+/-- **Per-token drawdown identity.** From the empty ledger, for every event sequence and
+    every live token: `original = remaining + consumed`. No unit of a token's capacity
+    silently appears or disappears; drawdown bookkeeping is exact. -/
+theorem token_balance_preserved (es : List Event) :
+    AllBalanced (run State.init es) :=
+  run_balanced es State.init (by intro t ht; simp [State.init] at ht)
 
 /-- **Replay-refusal / no-double-consume.** Consuming an already-seen event id on a
     token leaves the whole state unchanged — so the same event can never spend twice. -/

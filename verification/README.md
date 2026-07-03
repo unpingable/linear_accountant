@@ -16,7 +16,11 @@ against the proven model.
 
 - **`Ledger.lean`** — the spend ledger modelled as a fold over an event list, with
   machine-checked theorems (zero `sorry`):
-  - `conservation` — `minted = available + Σ original` for every event sequence;
+  - `conservation` — `minted = available + Σ original` for every event sequence
+    (the aggregate identity);
+  - `token_balance_preserved` — `original = remaining + consumed` for every live token,
+    for every event sequence (the local drawdown identity: conservation holds even if a
+    single token's own bookkeeping were wrong, so this is proved separately);
   - `replay_is_noop` — consuming an already-seen event id changes nothing
     (replay-refusal == no-double-consume).
 
