@@ -32,7 +32,7 @@ const RACERS: usize = 8;
 /// Deposit one unit and mint a single token holding it. Returns the opaque token id.
 /// The token has no public constructor — it can only be obtained this way.
 fn mint_one_unit_token(acc: &mut InMemoryAccountant, scope: &Scope) -> TokenId {
-    acc.deposit(scope, 1); // exactly one effect is affordable — ever.
+    acc.deposit(scope, 1, &admission()); // exactly one effect is affordable — ever.
     match acc.request_capacity(
         CapacityRequest {
             request_id: RequestId("req-grant".into()),
@@ -286,4 +286,13 @@ fn contention_same_event_replay_breaker_holds_under_race() {
             ..
         } if replays_refused == RACERS - 1
     ));
+}
+
+// A canned budget admission for tests. The mint boundary requires a non-empty sealed
+// reference; LA carries it verbatim and never evaluates it.
+fn admission() -> BudgetAdmissionRef {
+    BudgetAdmissionRef {
+        admission_ref: "watchbill/2026-07/lab".into(),
+        basis_kind: "watchbill".into(),
+    }
 }

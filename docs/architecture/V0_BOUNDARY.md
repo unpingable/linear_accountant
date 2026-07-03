@@ -202,14 +202,24 @@ policy return — as the **budget admission surface** (not the spender). Because
 hard/social part, it needs witness: *who set it? for whom? what scope? how long? under
 what basis? who approved the increase? what changed since last budget?*
 
-**Honest v0 state.** `deposit` is the enforcement-side entry point where a
-custody-decided budget lands. It records the *act* (`Event::Deposited{scope, amount}` —
-not silent, per invariant 2 in-process) but **not the basis**: no who-set-it / for-whom
-/ until-when / under-what-basis / who-approved. So a budget is currently recorded as a
-bare mint, not a witnessed grant. Capturing those basis fields is the **budget-setting
-witness gap** — a quiet custody act in [custody-legibility](../working/decisions/custody-legibility.md) terms, and it ties to
-deployment hard-parts #1 (effect taxonomy) and #4 (ownership). Candidate, **not built**;
-opens when a real budget-admission consumer needs the witness fields.
+**v0 state.** `deposit` is the enforcement-side entry point where a custody-decided
+budget lands, and it now **cites the admission it was minted against**: every deposit
+carries a required opaque `BudgetAdmissionRef` (a sealed reference + a typed
+`basis_kind`), recorded in `Event::Deposited`; a bare mint with no admission reference
+**fails closed** (`DepositDecision::Refused`), the same way `request_capacity` refuses an
+empty `eligibility_reference`. The row-1 laundering seam — stock conjured from
+`scope + amount` with nothing to attribute it to — is closed at ingress. LA records
+"this stock was minted against admission R"; it does **not** evaluate whether R was
+legitimate (that is C, the budget-setting priesthood, permanently out of scope — see
+[budget-admission-forcing-case](../working/decisions/budget-admission-forcing-case.md)).
+
+**Still candidate:** the *richer* basis fields beyond the sealed reference — who-set-it /
+for-whom / until-when / who-approved — and the read-only **budget-admission witness**
+that testifies "every unit of stock in this scope traces to an admission basis" (the
+paired ledger testimony, expressible now that ingress carries the reference). These tie
+to deployment hard-parts #1 (effect taxonomy) and #4 (ownership) and remain a quiet
+custody act in [custody-legibility](../working/decisions/custody-legibility.md) terms —
+opens when a consumer needs the fuller witness.
 
 ## 2d. The preflight door (refusal exposed, machinery withheld)
 
@@ -250,6 +260,9 @@ trigger becomes a fired one).
 - **Eligibility** — non-spendable admissibility statement. A *reference* + a
   `valid_until` are required on every request; the accountant does not re-decide it.
 - **Capacity / stock** — the finite consumable pool the accountant owns.
+- **Budget admission** — an opaque sealed reference (`BudgetAdmissionRef`) to a budget
+  admission decided elsewhere, cited by every `deposit`. LA records and carries it; it
+  never re-decides whether the admission was legitimate.
 - **Spend token** — minted, accountant-owned. Spendable iff `active ∧ remaining>0 ∧ not expired ∧ not revoked ∧ scope matches`.
 - **Consumption event** — atomic transition reducing capacity.
 - **Receipt** — copyable *evidence* an event occurred. Never spendable.
@@ -271,7 +284,9 @@ consume(consumption_event_id, token_id, actor, action, target, amount, scope) ->
 inspect_token(token_id) -> Option<TokenView>     // read-only; observation is not a lease
 revoke(token_id, reason, now) -> RevocationDecision { Revoked | AlreadyFinal }
 
-deposit(scope, amount) -> ReceiptId              // custodial mint — recorded, not silent
+deposit(scope, amount, admission_ref) -> DepositDecision   // custodial mint — cites a budget admission
+    → Deposited { scope, amount, receipt }
+    → Refused   { reason, receipt }               // empty admission reference — the mint boundary must cite one
 ledger() -> &[ReceiptRecord]                     // append-only; receipts have bodies
 witness::testify_no_double_spend(ledger, token_id) -> Testimony   // read-only; cannot allocate
 ```

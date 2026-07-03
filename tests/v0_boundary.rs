@@ -10,6 +10,15 @@ fn deploy() -> Scope {
     Scope("deploy".into())
 }
 
+// A canned budget admission for tests. The mint boundary requires a non-empty sealed
+// reference; LA carries it verbatim and never evaluates it.
+fn admission() -> BudgetAdmissionRef {
+    BudgetAdmissionRef {
+        admission_ref: "watchbill/2026-07/deploy".into(),
+        basis_kind: "watchbill".into(),
+    }
+}
+
 fn request(req_id: &str, cap: u64, elig: &str) -> CapacityRequest {
     CapacityRequest {
         request_id: RequestId(req_id.into()),
@@ -65,7 +74,7 @@ fn eligibility_alone_cannot_execute() {
 #[test]
 fn token_can_be_consumed_once() {
     let mut acc = InMemoryAccountant::new();
-    acc.deposit(&deploy(), 5);
+    acc.deposit(&deploy(), 5, &admission());
     let t = token_of(acc.request_capacity(request("r1", 1, "elig-1"), 0));
     let d = acc.consume(consume(t, "e1", 1), 1);
     assert!(matches!(
@@ -81,7 +90,7 @@ fn token_can_be_consumed_once() {
 #[test]
 fn consumed_token_cannot_be_consumed_again() {
     let mut acc = InMemoryAccountant::new();
-    acc.deposit(&deploy(), 5);
+    acc.deposit(&deploy(), 5, &admission());
     let t = token_of(acc.request_capacity(request("r1", 1, "elig-1"), 0));
     let _ = acc.consume(consume(t, "e1", 1), 1);
     // Fresh event id, exhausted token.
@@ -99,7 +108,7 @@ fn consumed_token_cannot_be_consumed_again() {
 #[test]
 fn receipt_cannot_be_used_as_token() {
     let mut acc = InMemoryAccountant::new();
-    acc.deposit(&deploy(), 5);
+    acc.deposit(&deploy(), 5, &admission());
     let t = token_of(acc.request_capacity(request("r1", 1, "elig-1"), 0));
     let consumed = acc.consume(consume(t, "e1", 1), 1);
     let _receipt = match consumed {
@@ -122,7 +131,7 @@ fn receipt_cannot_be_used_as_token() {
 #[test]
 fn same_idempotency_key_does_not_mint_duplicate_capacity() {
     let mut acc = InMemoryAccountant::new();
-    acc.deposit(&deploy(), 5);
+    acc.deposit(&deploy(), 5, &admission());
 
     let mut r = request("r1", 2, "elig-1");
     r.idempotency_key = Some("key-A".into());
@@ -148,7 +157,7 @@ fn same_idempotency_key_does_not_mint_duplicate_capacity() {
 #[test]
 fn keyless_replay_of_same_request_id_does_not_mint_duplicate_capacity() {
     let mut acc = InMemoryAccountant::new();
-    acc.deposit(&deploy(), 5);
+    acc.deposit(&deploy(), 5, &admission());
 
     let r = request("r1", 2, "elig-1"); // idempotency_key: None
     let first = token_of(acc.request_capacity(r.clone(), 0));
@@ -165,7 +174,7 @@ fn keyless_replay_of_same_request_id_does_not_mint_duplicate_capacity() {
 #[test]
 fn eligibility_is_contractible_but_capacity_is_linear() {
     let mut acc = InMemoryAccountant::new();
-    acc.deposit(&deploy(), 2);
+    acc.deposit(&deploy(), 2, &admission());
     // The SAME eligibility fact, cited three times across distinct requests.
     let a = acc.request_capacity(request("r1", 1, "elig-shared"), 0);
     let b = acc.request_capacity(request("r2", 1, "elig-shared"), 0);
@@ -183,7 +192,7 @@ fn eligibility_is_contractible_but_capacity_is_linear() {
 #[test]
 fn stale_eligibility_is_a_distinct_breach() {
     let mut acc = InMemoryAccountant::new();
-    acc.deposit(&deploy(), 5);
+    acc.deposit(&deploy(), 5, &admission());
 
     let mut r = request("r1", 1, "elig-1");
     r.eligibility_valid_until = 10; // warrant fresh only until t=10
@@ -212,7 +221,7 @@ fn stale_eligibility_is_a_distinct_breach() {
 #[test]
 fn replayed_event_is_idempotent() {
     let mut acc = InMemoryAccountant::new();
-    acc.deposit(&deploy(), 5);
+    acc.deposit(&deploy(), 5, &admission());
     let t = token_of(acc.request_capacity(request("r1", 2, "elig-1"), 0));
     let first = acc.consume(consume(t, "e1", 1), 1);
     assert!(matches!(first, ConsumptionDecision::Consumed { .. }));
@@ -231,7 +240,7 @@ fn replayed_event_is_idempotent() {
 fn custodial_deposit_is_recorded() {
     let mut acc = InMemoryAccountant::new();
     // Minting stock into existence — the single most sovereign act — leaves a record.
-    acc.deposit(&deploy(), 5);
+    acc.deposit(&deploy(), 5, &admission());
     let deposited = acc
         .ledger()
         .iter()
@@ -239,11 +248,89 @@ fn custodial_deposit_is_recorded() {
     assert!(deposited, "deposit must not be silent");
 }
 
+// --- Budget admission: the mint boundary must cite an admission -------------
+#[test]
+fn deposit_refused_without_admission() {
+    let mut acc = InMemoryAccountant::new();
+    // An empty/blank sealed reference: the mint has nothing to attribute the stock to.
+    let bare = BudgetAdmissionRef {
+        admission_ref: "   ".into(),
+        basis_kind: "watchbill".into(),
+    };
+    let d = acc.deposit(&deploy(), 5, &bare);
+    assert!(
+        matches!(d, DepositDecision::Refused { .. }),
+        "bare mint must fail closed: {d:?}"
+    );
+    assert_eq!(
+        acc.available(&deploy()),
+        0,
+        "a refused deposit seeds no stock"
+    );
+    // The refusal is recorded with enough context to audit the attempted mint: which
+    // scope, how much, and why. The mint boundary is never silently skipped.
+    let refused = acc.ledger().iter().any(|r| {
+        matches!(
+            &r.event,
+            Event::DepositRefused { scope, amount: 5, reason }
+                if *scope == deploy() && !reason.is_empty()
+        )
+    });
+    assert!(
+        refused,
+        "a refused deposit must record the attempted scope, amount, and reason"
+    );
+    let deposited = acc
+        .ledger()
+        .iter()
+        .any(|r| matches!(&r.event, Event::Deposited { .. }));
+    assert!(!deposited, "no Deposited event on a refused mint");
+}
+
+#[test]
+fn deposit_cites_admission_reference_verbatim() {
+    let mut acc = InMemoryAccountant::new();
+    let d = acc.deposit(&deploy(), 5, &admission());
+    assert!(
+        matches!(d, DepositDecision::Deposited { amount: 5, .. }),
+        "{d:?}"
+    );
+    assert_eq!(acc.available(&deploy()), 5);
+    // The ledger carries the admission reference verbatim: the mint is attributable.
+    let carried = acc
+        .ledger()
+        .iter()
+        .any(|r| matches!(&r.event, Event::Deposited { admission: a, .. } if *a == admission()));
+    assert!(
+        carried,
+        "Deposited event must carry the cited admission verbatim"
+    );
+}
+
+#[test]
+fn admission_reference_is_not_evaluated() {
+    let mut acc = InMemoryAccountant::new();
+    // A basis that would never survive real scrutiny — LA does not scrutinize it. The
+    // only check is "non-empty", never "valid": legitimacy is the budget-setting
+    // priesthood's job, not the goblin's. "This stock was minted against R" — never
+    // "R was legitimate authorization".
+    let unvetted = BudgetAdmissionRef {
+        admission_ref: "adm_from_nowhere".into(),
+        basis_kind: "totally-not-a-real-authority".into(),
+    };
+    let d = acc.deposit(&deploy(), 3, &unvetted);
+    assert!(
+        matches!(d, DepositDecision::Deposited { .. }),
+        "LA carries the reference; it does not judge the basis: {d:?}"
+    );
+    assert_eq!(acc.available(&deploy()), 3);
+}
+
 // --- The contact loop's final step: witness can testify --------------------
 #[test]
 fn witness_can_testify_no_double_spend() {
     let mut acc = InMemoryAccountant::new();
-    acc.deposit(&deploy(), 2);
+    acc.deposit(&deploy(), 2, &admission());
     let token = token_of(acc.request_capacity(request("r1", 2, "elig-1"), 0));
     let _ = acc.consume(consume(token, "e1", 1), 1); // Consumed
     let _ = acc.consume(consume(token, "e1", 1), 1); // replay → refused, recorded
@@ -268,7 +355,7 @@ fn witness_can_testify_no_double_spend() {
 #[test]
 fn expired_token_cannot_be_consumed() {
     let mut acc = InMemoryAccountant::new();
-    acc.deposit(&deploy(), 5);
+    acc.deposit(&deploy(), 5, &admission());
     // expires_after = 100, issued at now = 0 → expires_at = 100.
     let t = token_of(acc.request_capacity(request("r1", 1, "elig-1"), 0));
     let d = acc.consume(consume(t, "e1", 1), 100);
@@ -284,7 +371,7 @@ fn expired_token_cannot_be_consumed() {
 #[test]
 fn scope_mismatch_is_refused() {
     let mut acc = InMemoryAccountant::new();
-    acc.deposit(&deploy(), 5);
+    acc.deposit(&deploy(), 5, &admission());
     let t = token_of(acc.request_capacity(request("r1", 1, "elig-1"), 0));
     let mut c = consume(t, "e1", 1);
     c.scope = Scope("read-only".into());
@@ -295,7 +382,7 @@ fn scope_mismatch_is_refused() {
 #[test]
 fn revoked_token_cannot_be_consumed() {
     let mut acc = InMemoryAccountant::new();
-    acc.deposit(&deploy(), 5);
+    acc.deposit(&deploy(), 5, &admission());
     let t = token_of(acc.request_capacity(request("r1", 2, "elig-1"), 0));
     let r = acc.revoke(t, "operator pulled it", 1);
     assert!(matches!(r, RevocationDecision::Revoked { .. }));
@@ -314,7 +401,7 @@ fn restart_service_scenario() {
     // Wicket (elsewhere) says: agent-a is eligible to restart svc-1.
     // It hands the accountant a reference to that admission, not authority.
     let mut acc = InMemoryAccountant::new();
-    acc.deposit(&deploy(), 1); // exactly one restart is affordable
+    acc.deposit(&deploy(), 1, &admission()); // exactly one restart is affordable
 
     let token =
         token_of(acc.request_capacity(request("req-restart-1", 1, "wicket-admission#abc"), 0));

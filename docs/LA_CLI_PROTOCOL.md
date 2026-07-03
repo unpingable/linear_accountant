@@ -36,16 +36,25 @@ A consumer must treat any line lacking a `decision` (or any `fail_closed`) as a
 
 ## Commands
 
-### `deposit` — seed finite stock for a scope (custodial)
+### `deposit` — seed finite stock for a scope, citing a budget admission (custodial)
 
 ```
-cmd=deposit   scope=<str>   amount=<u64>
-→ {"ok":true,"event":"deposited","scope":"<scope>","amount":<n>,"receipt":"<ReceiptId(..)>"}
+cmd=deposit   scope=<str>   amount=<u64>   admission_ref=<str>   [basis_kind=<str>]
+→ {"ok":true,"event":"deposited","scope":"<scope>","amount":<n>,"admission_ref":"<str>","receipt":"<ReceiptId(..)>"}
+→ {"error":"deposit refused: <msg>","fail_closed":true}        # empty admission_ref
 ```
 
 Capacity enters the system only via `deposit`, and it is recorded in the ledger
-(custody is never silent). Depositing is the consumer's bounded-allocation act;
-the accountant performs and records it.
+(custody is never silent). **The mint boundary must cite a budget admission.**
+`admission_ref` is a **required** opaque sealed pointer to a budget admission decided
+elsewhere — never parsed, never evaluated. A missing `admission_ref` field fails closed
+here (`missing field: admission_ref`); an empty/blank one is refused by the accountant
+(`deposit refused: …`). `basis_kind` is an optional typed descriptor (e.g. `watchbill`,
+`standing`, `wicket`), carried verbatim and never branched on. LA records "this stock
+was minted against admission R"; it never claims R was legitimate authorization — that
+is the budget-setting priesthood, out of scope. Depositing is the consumer's
+bounded-allocation act: the caller supplies the admission reference; the accountant
+performs and records it.
 
 ### `request_capacity` — mint a token from deposited stock
 

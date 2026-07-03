@@ -302,7 +302,7 @@ fn run_seed(seed: u64) {
             0..=2 => {
                 let scope = rng.below(2) as usize;
                 let amt = rng.below(20);
-                acc.deposit(&scope_of(scope), amt);
+                acc.deposit(&scope_of(scope), amt, &admission());
                 model.deposit(scope, amt);
             }
             3..=6 => {
@@ -437,5 +437,14 @@ fn run_seed(seed: u64) {
 fn rust_matches_lean_model_over_random_sequences() {
     for seed in [1u64, 2, 3, 7, 11, 42, 1337, 0xDEAD_BEEF] {
         run_seed(seed);
+    }
+}
+
+// A canned budget admission for tests. The mint boundary requires a non-empty sealed
+// reference; LA carries it verbatim and never evaluates it.
+fn admission() -> BudgetAdmissionRef {
+    BudgetAdmissionRef {
+        admission_ref: "watchbill/2026-07/lab".into(),
+        basis_kind: "watchbill".into(),
     }
 }

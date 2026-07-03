@@ -5,15 +5,15 @@
 //! `eligibility_reference` verbatim and fails closed against any token that cannot back it.
 
 use linear_accountant::{
-    CapabilityError, CapacityDecision, CapacityRequest, ConsumeRequest, ConsumptionDecision,
-    EventId, InMemoryAccountant, RequestId, Scope,
+    BudgetAdmissionRef, CapabilityError, CapacityDecision, CapacityRequest, ConsumeRequest,
+    ConsumptionDecision, EventId, InMemoryAccountant, RequestId, Scope,
 };
 
 #[test]
 fn capability_binds_eligibility_verbatim_and_is_single_use() {
     let mut acct = InMemoryAccountant::new();
     let scope = Scope("lab".into());
-    acct.deposit(&scope, 5);
+    acct.deposit(&scope, 5, &admission());
     let token_id = match acct.request_capacity(
         CapacityRequest {
             request_id: RequestId("r1".into()),
@@ -54,7 +54,7 @@ fn capability_binds_eligibility_verbatim_and_is_single_use() {
 fn capability_fails_closed_on_unknown_and_expired() {
     let mut acct = InMemoryAccountant::new();
     let scope = Scope("lab".into());
-    acct.deposit(&scope, 5);
+    acct.deposit(&scope, 5, &admission());
     let token_id = match acct.request_capacity(
         CapacityRequest {
             request_id: RequestId("r1".into()),
@@ -90,7 +90,7 @@ fn capability_fails_closed_on_unknown_and_expired() {
 fn issuing_capabilities_is_not_spend_and_not_reservation() {
     let mut acct = InMemoryAccountant::new();
     let scope = Scope("lab".into());
-    acct.deposit(&scope, 5);
+    acct.deposit(&scope, 5, &admission());
     let token_id = match acct.request_capacity(
         CapacityRequest {
             request_id: RequestId("r1".into()),
@@ -146,5 +146,14 @@ fn issuing_capabilities_is_not_spend_and_not_reservation() {
             "full remaining was spendable; issuance reserved nothing",
         ),
         other => panic!("expected full consume, got {other:?}"),
+    }
+}
+
+// A canned budget admission for tests. The mint boundary requires a non-empty sealed
+// reference; LA carries it verbatim and never evaluates it.
+fn admission() -> BudgetAdmissionRef {
+    BudgetAdmissionRef {
+        admission_ref: "watchbill/2026-07/lab".into(),
+        basis_kind: "watchbill".into(),
     }
 }

@@ -40,11 +40,12 @@
 //!
 //! ## Custody legibility (in-process down-payment)
 //!
-//! Every event — including the custodial `deposit` that mints stock into existence —
-//! is appended to a retrievable [`ledger`](InMemoryAccountant::ledger). Receipts have
-//! bodies. A read-only [`witness`] can testify, from the ledger, that no double-spend
-//! occurred. The genuinely hard half — an anchor *outside the actor's unilateral
-//! control* — is deliberately NOT here.
+//! Every event — including the custodial `deposit` that mints stock into existence, now
+//! **citing the [`BudgetAdmissionRef`] it was minted against** (carried and recorded,
+//! never evaluated) — is appended to a retrievable [`ledger`](InMemoryAccountant::ledger).
+//! Receipts have bodies. A read-only [`witness`] can testify, from the ledger, that no
+//! double-spend occurred. The genuinely hard half — an anchor *outside the actor's
+//! unilateral control* — is deliberately NOT here.
 
 use std::collections::HashMap;
 use std::collections::HashSet;
@@ -69,6 +70,24 @@ pub struct EventId(pub String);
 
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
 pub struct Scope(pub String);
+
+/// A sealed pointer to a budget admission decided elsewhere, cited by [`deposit`] when it
+/// mints stock into existence. The mint boundary's answer to invariant 4: a mint carries a
+/// sealed reference and a typed descriptor, the same way a grant carries
+/// `eligibility_reference`. LA **stores and cites it verbatim; it never parses, evaluates,
+/// or judges it** — "this stock was minted against admission R" is a linkage claim, never
+/// "R was legitimate authorization" (that is the budget-setting priesthood, out of scope).
+///
+/// `admission_ref` is the load-bearing sealed pointer: `deposit` refuses to seed stock
+/// against an empty one. `basis_kind` is a typed descriptor of the admitting authority — a
+/// label carried for the witness, never a policy input LA branches on.
+///
+/// [`deposit`]: InMemoryAccountant::deposit
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BudgetAdmissionRef {
+    pub admission_ref: String,
+    pub basis_kind: String,
+}
 
 /// A request for spendable capacity.
 ///
@@ -101,6 +120,21 @@ pub struct ConsumeRequest {
     pub target: String,
     pub amount: u64,
     pub scope: Scope,
+}
+
+/// The outcome of a custodial `deposit`. A mint that cannot cite an admission is refused,
+/// fail-closed, and the refusal is recorded — the mint boundary is never silently skipped.
+#[derive(Clone, Debug, PartialEq)]
+pub enum DepositDecision {
+    Deposited {
+        scope: Scope,
+        amount: u64,
+        receipt: ReceiptId,
+    },
+    Refused {
+        reason: String,
+        receipt: ReceiptId,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -237,6 +271,12 @@ pub enum Event {
     Deposited {
         scope: Scope,
         amount: u64,
+        admission: BudgetAdmissionRef,
+    },
+    DepositRefused {
+        scope: Scope,
+        amount: u64,
+        reason: String,
     },
     Granted {
         token_id: TokenId,
@@ -322,14 +362,39 @@ impl InMemoryAccountant {
         }
     }
 
-    /// Seed finite stock for a scope. The only way capacity enters the system — and a
-    /// custodial act, so it is recorded in the ledger rather than performed silently.
-    pub fn deposit(&mut self, scope: &Scope, amount: u64) -> ReceiptId {
+    /// Seed finite stock for a scope, **citing the budget admission that authorized it**.
+    /// The only way capacity enters the system — a custodial mint, recorded in the ledger,
+    /// never silent. Fails closed on an empty `admission.admission_ref`: the mint boundary
+    /// must cite an admission, the same way `request_capacity` refuses an empty
+    /// `eligibility_reference`. LA stores and cites the reference; it never evaluates it.
+    pub fn deposit(
+        &mut self,
+        scope: &Scope,
+        amount: u64,
+        admission: &BudgetAdmissionRef,
+    ) -> DepositDecision {
+        if admission.admission_ref.trim().is_empty() {
+            let reason = "missing admission reference: the mint boundary must cite a budget \
+                          admission, never seed stock it cannot attribute"
+                .to_string();
+            let receipt = self.record(Event::DepositRefused {
+                scope: scope.clone(),
+                amount,
+                reason: reason.clone(),
+            });
+            return DepositDecision::Refused { reason, receipt };
+        }
         *self.stock.entry(scope.0.clone()).or_insert(0) += amount;
-        self.record(Event::Deposited {
+        let receipt = self.record(Event::Deposited {
             scope: scope.clone(),
             amount,
-        })
+            admission: admission.clone(),
+        });
+        DepositDecision::Deposited {
+            scope: scope.clone(),
+            amount,
+            receipt,
+        }
     }
 
     /// Remaining stock for a scope. Read-only; observing it grants nothing.

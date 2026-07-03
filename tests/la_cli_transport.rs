@@ -42,7 +42,8 @@ fn run(script: &str) -> Vec<String> {
 }
 
 fn deposit(scope: &str, amount: u64) -> String {
-    format!("cmd=deposit\tscope={scope}\tamount={amount}")
+    // The mint boundary must cite a budget admission; the CLI requires `admission_ref`.
+    format!("cmd=deposit\tscope={scope}\tamount={amount}\tadmission_ref=adm_budget\tbasis_kind=watchbill")
 }
 
 fn request(scope: &str, cap: u64) -> String {
@@ -149,4 +150,26 @@ fn unknown_token_handle_fails_closed() {
 fn missing_field_fails_closed() {
     let r = run("cmd=deposit\tscope=lab/s\n"); // no amount
     assert!(r[0].contains("\"fail_closed\":true"), "{}", r[0]);
+}
+
+#[test]
+fn deposit_without_admission_ref_fails_closed() {
+    // A mint that cannot cite an admission is refused over the wire, fail-closed —
+    // no silent stock. The mint boundary must cite an admission (invariant 4).
+    let r = run("cmd=deposit\tscope=lab/s\tamount=1\n"); // no admission_ref
+    assert!(r[0].contains("\"fail_closed\":true"), "{}", r[0]);
+    assert!(r[0].contains("admission_ref"), "{}", r[0]);
+    assert!(!r[0].contains("\"event\":\"deposited\""), "{}", r[0]);
+}
+
+#[test]
+fn deposit_echoes_admission_ref() {
+    // The success line carries the cited admission reference back to the consumer.
+    let r = run(&format!("{}\n", deposit("lab/s", 1)));
+    assert!(r[0].contains("\"event\":\"deposited\""), "{}", r[0]);
+    assert!(
+        r[0].contains("\"admission_ref\":\"adm_budget\""),
+        "{}",
+        r[0]
+    );
 }

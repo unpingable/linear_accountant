@@ -43,8 +43,8 @@ use std::collections::HashMap;
 use std::io::{self, BufRead, Write};
 
 use linear_accountant::{
-    CapacityDecision, CapacityRequest, ConsumeRequest, ConsumptionDecision, EventId,
-    InMemoryAccountant, RequestId, Scope, Tick, TokenId,
+    BudgetAdmissionRef, CapacityDecision, CapacityRequest, ConsumeRequest, ConsumptionDecision,
+    DepositDecision, EventId, InMemoryAccountant, RequestId, Scope, Tick, TokenId,
 };
 
 fn main() {
@@ -120,13 +120,27 @@ fn cmd_deposit(f: &HashMap<&str, &str>, acct: &mut InMemoryAccountant) -> String
         Ok(n) => n,
         Err(e) => return e,
     };
-    let receipt = acct.deposit(&Scope(scope.to_string()), amount);
-    format!(
-        "{{\"ok\":true,\"event\":\"deposited\",\"scope\":\"{}\",\"amount\":{},\"receipt\":\"{}\"}}",
-        esc(scope),
-        amount,
-        esc(&format!("{receipt:?}"))
-    )
+    // The mint boundary must cite an admission (invariant 4). A missing `admission_ref`
+    // field fails closed here; an empty one fails closed at the accountant. `basis_kind`
+    // is an optional typed descriptor — carried verbatim, never evaluated.
+    let admission_ref = match req_str(f, "admission_ref") {
+        Ok(s) => s,
+        Err(e) => return e,
+    };
+    let admission = BudgetAdmissionRef {
+        admission_ref: admission_ref.to_string(),
+        basis_kind: f.get("basis_kind").copied().unwrap_or("").to_string(),
+    };
+    match acct.deposit(&Scope(scope.to_string()), amount, &admission) {
+        DepositDecision::Deposited { receipt, .. } => format!(
+            "{{\"ok\":true,\"event\":\"deposited\",\"scope\":\"{}\",\"amount\":{},\"admission_ref\":\"{}\",\"receipt\":\"{}\"}}",
+            esc(scope),
+            amount,
+            esc(admission_ref),
+            esc(&format!("{receipt:?}"))
+        ),
+        DepositDecision::Refused { reason, .. } => err(&format!("deposit refused: {reason}")),
+    }
 }
 
 fn cmd_request(

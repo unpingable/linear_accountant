@@ -120,7 +120,7 @@ impl ExecutionBoundary<'_> {
 fn file_write_workload_eligibility_alone_cannot_execute() {
     let scope = Scope("fs_write".into());
     let mut acc = InMemoryAccountant::new();
-    acc.deposit(&scope, 1); // exactly one write is affordable — ever.
+    acc.deposit(&scope, 1, &admission()); // exactly one write is affordable — ever.
 
     let path = std::env::temp_dir().join(format!("la_workload_{}.txt", std::process::id()));
     let _ = std::fs::remove_file(&path);
@@ -209,4 +209,13 @@ fn file_write_workload_eligibility_alone_cannot_execute() {
     ));
 
     let _ = std::fs::remove_file(&path);
+}
+
+// A canned budget admission for tests. The mint boundary requires a non-empty sealed
+// reference; LA carries it verbatim and never evaluates it.
+fn admission() -> BudgetAdmissionRef {
+    BudgetAdmissionRef {
+        admission_ref: "watchbill/2026-07/lab".into(),
+        basis_kind: "watchbill".into(),
+    }
 }
