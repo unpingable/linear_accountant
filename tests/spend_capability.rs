@@ -36,7 +36,10 @@ fn capability_binds_eligibility_verbatim_and_is_single_use() {
     let cap = acct
         .issue_capability(token_id, "demo", "fs_write", "nonce-7", 2)
         .expect("clean token should mint");
-    assert_eq!(cap.eligibility_reference, "sha256:standing-xyz", "binds the grant's eref verbatim");
+    assert_eq!(
+        cap.eligibility_reference, "sha256:standing-xyz",
+        "binds the grant's eref verbatim"
+    );
     assert_eq!(cap.target, "demo");
     assert_eq!(cap.effect_class, "fs_write");
     assert_eq!(cap.capability_id, "nonce-7");
@@ -136,7 +139,9 @@ fn issuing_capabilities_is_not_spend_and_not_reservation() {
         },
         3,
     ) {
-        ConsumptionDecision::Consumed { remaining_capacity, .. } => assert_eq!(
+        ConsumptionDecision::Consumed {
+            remaining_capacity, ..
+        } => assert_eq!(
             remaining_capacity, 0,
             "full remaining was spendable; issuance reserved nothing",
         ),

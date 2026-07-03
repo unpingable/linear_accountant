@@ -503,7 +503,11 @@ impl InMemoryAccountant {
             if s.remaining_capacity == 0 {
                 return Err(CapabilityError::Exhausted);
             }
-            (s.scope.clone(), s.eligibility_reference.clone(), s.expires_at)
+            (
+                s.scope.clone(),
+                s.eligibility_reference.clone(),
+                s.expires_at,
+            )
         };
         let cap = SpendCapability {
             capability_id: capability_id.to_string(),
@@ -760,10 +764,10 @@ pub mod preflight {
     /// seam stays exactly as narrow as the real consume path.
     #[derive(Clone, Debug, PartialEq, Eq)]
     pub struct PreflightInquiry {
-        pub consumer: String,      // e.g. "maude"
-        pub boundary: String,      // e.g. "write_tool_approval"
-        pub principal: String,     // workload / bot identity
-        pub action_class: String,  // e.g. "write_tool"
+        pub consumer: String,     // e.g. "maude"
+        pub boundary: String,     // e.g. "write_tool_approval"
+        pub principal: String,    // workload / bot identity
+        pub action_class: String, // e.g. "write_tool"
         pub repo: String,
         pub estimated_units: u64,
         pub basis_receipt: String, // sealed pointer to a standing/watchbill/wicket receipt
@@ -804,8 +808,8 @@ pub mod preflight {
             observed_boundary: format!("{}.{}", inquiry.consumer, inquiry.boundary),
             mutation_performed: false,
             freeze_basis: "README/CLAUDE.md freeze (v0 reference boundary)".into(),
-            allowed_next_step: "operator may thaw when dispatcher integration is visible, or by fiat"
-                .into(),
+            allowed_next_step:
+                "operator may thaw when dispatcher integration is visible, or by fiat".into(),
         }
     }
 }

@@ -226,7 +226,9 @@ fn check_invariants(
 ) {
     let mut orig_sum = [0u64; 2];
     for &(tid, i) in tokens {
-        let v = acc.inspect_token(tid).expect("granted token must be inspectable");
+        let v = acc
+            .inspect_token(tid)
+            .expect("granted token must be inspectable");
         let rt = &model.toks[i];
         orig_sum[rt.scope] += v.original_capacity;
         assert_eq!(
@@ -240,6 +242,10 @@ fn check_invariants(
             "seed {seed} step {step}: original != remaining + consumed"
         );
     }
+    // `s` indexes four parallel arrays (stock, deposited, orig_sum, scope_of) — the
+    // canonical case where `needless_range_loop`'s single-array enumerate rewrite is a
+    // false positive. (Pre-existing; surfaced by a rustfmt/clippy toolchain bump.)
+    #[allow(clippy::needless_range_loop)]
     for s in 0..2 {
         let avail = acc.available(&scope_of(s));
         assert_eq!(
@@ -269,7 +275,9 @@ fn check_witness(
                 total_consumed, model.toks[i].consumed_total,
                 "seed {seed} step {step}: witness tally diverged"
             ),
-            Testimony::DoubleSpendObserved { reused_event_id, .. } => panic!(
+            Testimony::DoubleSpendObserved {
+                reused_event_id, ..
+            } => panic!(
                 "seed {seed} step {step}: witness observed double-spend (event {reused_event_id})"
             ),
         }
@@ -311,7 +319,11 @@ fn run_seed(seed: u64) {
                 };
                 let use_idem = rng.below(2) == 0;
                 let request_id = format!("r{key_n}");
-                let idem = if use_idem { Some(format!("k{key_n}")) } else { None };
+                let idem = if use_idem {
+                    Some(format!("k{key_n}"))
+                } else {
+                    None
+                };
                 let dedupe_key = idem.clone().unwrap_or_else(|| request_id.clone());
                 let valid_until = now + rng.below(4); // sometimes == now -> stale
                 let expires_after = 1 + rng.below(6);
@@ -333,8 +345,15 @@ fn run_seed(seed: u64) {
                     idempotency_key: idem,
                 };
                 let d = acc.request_capacity(req, now);
-                let outcome =
-                    model.request(dedupe_key, scope, amount, elig_empty, now, valid_until, expires_after);
+                let outcome = model.request(
+                    dedupe_key,
+                    scope,
+                    amount,
+                    elig_empty,
+                    now,
+                    valid_until,
+                    expires_after,
+                );
                 assert_eq!(
                     req_cat(&d),
                     outcome.cat(),
