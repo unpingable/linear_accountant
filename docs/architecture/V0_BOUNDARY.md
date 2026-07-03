@@ -1,8 +1,11 @@
 # Linear Accountant v0 — Spendability Authority Boundary
 
 **Status:** Reference boundary. Not production architecture. Not a daemon.
-**Executable form:** this crate (`src/lib.rs` + `tests/v0_boundary.rs`, 14 passing tests). The
-code is authoritative for behaviour.
+**Executable form:** this crate (`src/lib.rs` + `tests/v0_boundary.rs`, 15 passing tests). The
+code is authoritative for behaviour. The boundary suite is complemented by companion
+targets — CLI transport, preflight door, contention & file-write workloads, spend
+capability, and the Lean differential oracle (`tests/*.rs`); run `cargo test` for the
+whole suite. (Exact per-target counts drift; `cargo test -- --list` is authoritative.)
 
 **Three kinds of refusal, never conflated:** *spend is counted* (this crate),
 *capability is checked or judged* ([capability-composition](../working/decisions/capability-composition.md) — a hardness gradient;
@@ -56,7 +59,9 @@ but `[A] ⊬ A ⊗ A`. Enforced by **finite stock**, not prose. Two linear bound
 1. **stock → token** at grant — a depletable pool per scope (`deposit`). Citing the
    same eligibility forever cannot refill it; the pool runs dry and requests are denied.
 2. **token → effect** at consume — `remaining_capacity` drawn down atomically,
-   exactly-once per `consumption_event_id`.
+   exactly-once per `(token_id, consumption_event_id)` (replay is scoped to the token,
+   not a global effect id — see
+   [event-identity](../working/decisions/event-identity.md)).
 
 ### Pillar 2 — Narrow seams (engineering security property)
 

@@ -17,7 +17,7 @@ supervised session and kills it at session end. State dies with the process.
 ## Framing
 
 - **stdin:** one command per line, TAB-separated `key=value` pairs. The first
-  pair must be `cmd=<deposit|request_capacity|consume>`. The first `=` in a pair
+  pair must be `cmd=<deposit|request_capacity|consume|issue_capability>`. The first `=` in a pair
   is the separator (values may contain `=`, `/`, `:`); values may **not** contain
   a TAB or newline.
 - **stdout:** one JSON object per line — a decision, an ack, or an error.
@@ -75,11 +75,35 @@ cmd=consume  consumption_event_id=<str>  token_id=t<N>  actor=<str>  action=<str
 → {"decision":"ScopeMismatch","token_id":"t<N>","expected_scope":"<s>","requested_scope":"<s>","receipt":"<..>"}
 ```
 
-`consumption_event_id` is the exactly-once key: a replayed id → `AlreadyConsumed`.
-Eligibility is contractible; capacity is linear.
+`consumption_event_id` is the exactly-once key **within the token**: a replayed id on the
+same token → `AlreadyConsumed`. The replay/idempotency domain is `(token_id,
+consumption_event_id)`, not a global effect id — see
+[event-identity](working/decisions/event-identity.md). Eligibility is contractible;
+capacity is linear.
+
+### `issue_capability` — mint a single-use SpendCapability from a granted token
+
+```
+cmd=issue_capability  token_id=t<N>  target=<str>  effect_class=<str>
+  capability_id=<str>  tick=<u64>
+→ {"capability_id":"<str>","token_id":"t<N>","scope":"<scope>","target":"<str>","effect_class":"<str>","eligibility_reference":"<str>","issued_at":<tick>,"expires_at":<tick>,"single_use":true}
+→ {"error":"capability refused: <UnknownToken|TokenRevoked|TokenExpired|Exhausted>","fail_closed":true}
+```
+
+Issuance is **additive, not a spend**: minting a SpendCapability does **not** draw down
+the token's `remaining_capacity` and does **not** reserve it — stock is unchanged by
+issuance. The SpendCapability is a bounded execution *envelope* that binds the token's
+opaque `eligibility_reference` verbatim; the only effect that crosses the spend boundary
+is still `consume`. See
+[capability-redemption](working/decisions/capability-redemption.md). Fails closed against
+any token that cannot back it (unknown handle, revoked, expired, or exhausted).
 
 ## Tests
 
 `tests/la_cli_transport.rs` drives the real binary and asserts the happy path,
 replay-kill, exhaustion, scope mismatch, and the three fail-closed paths
 (malformed line, unknown command, unknown token handle).
+
+`tests/spend_capability.rs` exercises the `issue_capability` decision at the library
+boundary: verbatim eligibility binding, single-use, fail-closed issuance, and that
+issuance leaves stock unchanged (issuance is not spend).
