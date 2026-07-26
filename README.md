@@ -1,5 +1,18 @@
 # Linear Accountant
 
+> **Status (2026-07-26): the Linear-Accounting / Spendability office —
+> frozen reference boundary, separately instantiated, not part of the
+> current operational vertical.** This repository owns the jurisdiction "is
+> there conserved capacity, and is it burned exactly once?" — with the
+> conservation core machine-checked in Lean (`verification/`). It has
+> **never been absorbed**: Docket's reservations/consumption/settlement and
+> AG ng's one-use decision burn are domain-local exactly-once disciplines,
+> not conservation accounting; unique here remain conservation over a
+> finite stock, mint≠burn capability separation (`SpendCapability`), and
+> replay-as-noop. Consumers are the classic lineage (AG classic `la_cli`
+> gate; transition-kernel Stage 3 chain). The freeze policy below stands:
+> new slices land only on a real consumer trigger.
+
 A reference boundary for the **Spendability Authority** role (mnemonic: *Scrooge*) — a
 small, conserved core that fences exactly one failure class: turning valid context into
 reusable capacity.
